@@ -1,24 +1,23 @@
 # API Framework
-fastapi
-uvicorn[standard]
-pydantic
-python-dotenv
-httpx
-python-multipart
-email-validator
+fastapi==0.115.11
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+python-dotenv==1.0.1
+httpx==0.28.1
+python-multipart==0.0.20
+email-validator==2.2.0
 
-# Core ML/LLM dependencies
-langchain
-langchain-core
-chromadb
-openai
-sentence-transformers[cpu]
+# Core API dependencies (using OpenAI API only)
+langchain==0.3.20
+langchain-core==0.3.41
+chromadb==0.6.3
+openai==1.65.2
 
 # LangChain extensions
-langchain-openai
-langchain-community
-langchain-chroma
-langgraph
+langchain-openai==0.3.7
+langchain-community==0.3.19
+langchain-chroma==0.2.2
+langgraph==0.3.2
 
 # AWS Integration
 boto3  # No version constraint for maximum compatibility

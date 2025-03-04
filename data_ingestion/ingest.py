@@ -14,8 +14,6 @@ from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 from openai import RateLimitError
 from pydantic import SecretStr
-from chromadb.config import Settings
-from backend.app.core.config import get_settings
 
 # Load environment variables
 load_dotenv()
@@ -93,8 +91,8 @@ def create_embeddings(chunks: List[str]) -> List[List[float]]:
 
 def store_in_chroma(chunks: List[str], embeddings: List[List[float]]):
     """Store chunks and embeddings in ChromaDB."""
-    settings = get_settings()
-    persist_dir = settings.chroma_db_path
+    # Read CHROMA_DB_PATH directly from environment or use default
+    persist_dir = os.getenv("CHROMA_DB_PATH", "./data/chroma")
     logger.info(f"Storing data in ChromaDB at persistence directory: {persist_dir}")
     
     # Ensure the persistence directory exists
@@ -107,8 +105,7 @@ def store_in_chroma(chunks: List[str], embeddings: List[List[float]]):
     
     try:
         client = chromadb.PersistentClient(
-            path=persist_dir,
-            settings=Settings(anonymized_telemetry=False)
+            path=persist_dir
         )
         logger.info("Successfully created ChromaDB client")
         

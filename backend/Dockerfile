@@ -21,9 +21,15 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install pip and wheel
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools
 
-# Copy requirements and install all dependencies
+# Copy and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Remove unnecessary cache and files to reduce layer size
+RUN pip cache purge && \
+    find /usr/local -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true
 
 # Runtime stage - much smaller, only includes what's needed to run the app
 FROM python:3.13-slim AS runtime
