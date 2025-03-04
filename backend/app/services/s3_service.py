@@ -1,0 +1,117 @@
+import json
+import logging
+import boto3
+from datetime import datetime
+from app.core.config import get_settings
+from app.schemas.query import UserInfo
+from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+class S3Service:
+    def __init__(self):
+        self.settings = get_settings()
+        self.s3_client = boto3.client(
+            's3', 
+            aws_access_key_id=self.settings.aws_access_key_id,
+            aws_secret_access_key=self.settings.aws_secret_access_key,
+            region_name=self.settings.aws_region
+        )
+        self.bucket_name = self.settings.aws_s3_bucket_name
+
+    async def save_chat_log(self, session_id: str, user_info: UserInfo, messages: List[Dict[str, Any]]):
+        """
+        Save a complete chat log to S3 using a data lake compatible structure
+        
+        Args:
+            session_id: Unique identifier for the chat session
+            user_info: User information from the form
+            messages: List of chat messages
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Get current timestamp for partitioning
+            now = datetime.now()
+            year = now.strftime("%Y")
+            month = now.strftime("%m")
+            day = now.strftime("%d")
+            timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+            
+            # Format the chat data for storage
+            chat_data = {
+                "metadata": {
+                    "session_id": session_id,
+                    "timestamp": timestamp,
+                    "user_info": {
+                        "name": user_info.name,
+                        "email": user_info.email,
+                        "company_name": user_info.companyName,
+                        "company_type": user_info.companyType,
+                        "purpose": user_info.purpose,
+                        "job_role": user_info.jobRole
+                    }
+                },
+                "messages": [
+                    {
+                        "content": message["content"],
+                        "is_user": message["is_user"],
+                        "timestamp": message["timestamp"].isoformat() if isinstance(message["timestamp"], datetime) else message["timestamp"]
+                    }
+                    for message in messages
+                ],
+                # Add additional metrics for easy querying
+                "analytics": {
+                    "message_count": len(messages),
+                    "user_message_count": sum(1 for msg in messages if msg.get("is_user", False)),
+                    "assistant_message_count": sum(1 for msg in messages if not msg.get("is_user", False)),
+                    "conversation_duration_minutes": self._calculate_conversation_duration(messages)
+                }
+            }
+            
+            # Create a data lake compatible key structure with Hive-style partitioning
+            # This structure works well with AWS Athena, Glue, and other analytics services
+            # Include company type for organizational analytics
+            key = f"chats/year={year}/month={month}/day={day}/company_type={user_info.companyType}/purpose={user_info.purpose}/job_role={user_info.jobRole}/{session_id}.json"
+            
+            # Convert to JSON and upload to S3
+            chat_json = json.dumps(chat_data)
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=key,
+                Body=chat_json,
+                ContentType='application/json'
+            )
+            
+            logger.info(f"Successfully saved chat log to S3: {key}")
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error saving chat log to S3: {str(e)}")
+            return False
+    
+    def _calculate_conversation_duration(self, messages: List[Dict[str, Any]]) -> float:
+        """Calculate the approximate duration of the conversation in minutes"""
+        if len(messages) < 2:
+            return 0
+        
+        try:
+            # Get first and last message timestamps
+            first_time = messages[0].get("timestamp")
+            last_time = messages[-1].get("timestamp")
+            
+            # Convert to datetime if they're strings
+            if isinstance(first_time, str):
+                first_time = datetime.fromisoformat(first_time.replace('Z', '+00:00'))
+            if isinstance(last_time, str):
+                last_time = datetime.fromisoformat(last_time.replace('Z', '+00:00'))
+                
+            # Calculate duration in minutes
+            if isinstance(first_time, datetime) and isinstance(last_time, datetime):
+                delta = last_time - first_time
+                return delta.total_seconds() / 60
+        except (ValueError, TypeError, AttributeError):
+            pass
+            
+        return 0 

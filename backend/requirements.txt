@@ -1,0 +1,24 @@
+# API Framework
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+httpx
+python-multipart
+email-validator
+
+# Core ML/LLM dependencies
+langchain
+langchain-core
+chromadb
+openai
+sentence-transformers[cpu]
+
+# LangChain extensions
+langchain-openai
+langchain-community
+langchain-chroma
+langgraph
+
+# AWS Integration
+boto3  # No version constraint for maximum compatibility
