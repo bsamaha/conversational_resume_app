@@ -1,8 +1,8 @@
-# Use a single-stage build approach for simplicity and consistency
-FROM python:3.13-slim
+# Build stage - includes all build dependencies
+FROM python:3.13-slim AS builder
 WORKDIR /app
 
-# Install build dependencies and runtime dependencies
+# Install build dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
@@ -21,24 +21,25 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install pip and wheel
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools
 
-# Copy requirements and install all dependencies directly from requirements.txt
+# Copy requirements and install all dependencies
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Install all dependencies at once with more output for debugging
-RUN pip install --no-cache-dir -r requirements.txt -v
+# Runtime stage - much smaller, only includes what's needed to run the app
+FROM python:3.13-slim AS runtime
+WORKDIR /app
 
-# Clean up caches to reduce image size
-RUN pip cache purge && \
-    find /usr/local -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name "examples" -exec rm -rf {} + 2>/dev/null || true && \
-    find /usr/local -type d -name ".git" -exec rm -rf {} + 2>/dev/null || true && \
-    # Clean up Rust to reduce image size
-    rm -rf /root/.cargo/registry && \
-    rm -rf /root/.cargo/git
+# Install only runtime dependencies (no build tools)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# List installed packages for debugging
-RUN pip list
+# Copy installed packages from builder stage
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY ./app ./app
