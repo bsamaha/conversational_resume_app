@@ -32,7 +32,7 @@ function App() {
       setTimeout(() => {
         setMessages([
           {
-            content: `Hi ${userInfo.name}! I'm Blake's resume chatbot. Feel free to ask me anything about his experience, skills, or background!`,
+            content: `Hi ${userInfo.name}! I'm Blake's resume chatbot. Feel free to ask me anything about his experience, skills, or background!\n\n**Here are some questions to get started:**\n\n• What's your career progression in the IoT field?\n• What technologies did you use at Oxy?\n• Tell me about your experience with cloud platforms\n• What was your role at Enchanted Rock?\n• What are your strongest technical skills?`,
             isUser: false,
             timestamp: new Date(),
           },

@@ -27,7 +27,15 @@ conversational-resume/
 ├── frontend/             # React frontend
 ├── data_ingestion/       # Data processing scripts & ingestion tool
 └── data/                 # Data storage (raw documents, ChromaDB data)
+    ├── raw/              # Original markdown resume files
+    └── chroma/           # Vector database storage
 ```
+
+The project uses a standardized data directory structure:
+- All data is stored in the `data/` directory at the project root
+- Resume documents and markdown files go in `data/raw/`
+- The vector database is stored in `data/chroma/`
+- This single data location is referenced consistently across all components
 
 ## Setup
 
@@ -145,6 +153,60 @@ For local development of the frontend, you have two options:
 
 5. **Containerization:**
    - Docker containerizes both backend and frontend, ensuring a consistent runtime environment across different setups.
+
+## Advanced RAG Techniques
+
+The CRPC implements several advanced Retrieval-Augmented Generation (RAG) techniques to enhance the quality and relevance of AI responses:
+
+### High-Quality Document Embeddings
+
+The system utilizes several sophisticated techniques to improve document embeddings:
+
+1. **Context-Enhanced Document Representation**
+   - Each document chunk is enriched with metadata before embedding
+   - Section headers and document structure are incorporated into the vector representation
+   - This helps the model understand both content and context, improving retrieval precision
+
+2. **Advanced Entity Extraction**
+   - Specialized parsing extracts entities like dates, locations, skills, and organizations
+   - These entities are stored as metadata, enabling more precise filtering
+   - Pattern recognition identifies key professional experiences and qualifications
+
+3. **Optimized Vector Similarity**
+   - Cosine similarity is used for semantic matching between queries and documents
+   - This approach focuses on directional similarity rather than magnitude
+   - Results in more semantically accurate retrieval for professional context questions
+
+### Efficient Processing Pipeline
+
+1. **Intelligent Document Chunking**
+   - Markdown-aware splitting preserves the hierarchical structure of resume documents
+   - Chunks maintain headings and relevant context, preserving the relationship between sections
+   - Overlap strategy ensures concepts that cross chunk boundaries are properly represented
+
+2. **Batch Processing with Rate Limiting**
+   - Documents are processed in optimized batches to balance throughput and API limitations
+   - Built-in rate limiting prevents throttling issues when processing larger document sets
+   - Improves reliability and cost-effectiveness of the embedding generation process
+
+3. **Robust Error Handling**
+   - Comprehensive validation ensures type compatibility with the vector database
+   - Lists and complex types are properly converted to database-compatible formats
+   - Ensures consistent performance without metadata-related failures
+
+### Query Enhancement
+
+1. **Query Classification and Expansion**
+   - Incoming queries are classified by type (e.g., technical expertise, career history)
+   - Retrieval parameters are adjusted based on query classification
+   - Enables more relevant document retrieval for different question types
+
+2. **Similarity Threshold Filtering**
+   - Retrieved documents are filtered by minimum similarity score
+   - Prevents irrelevant information from being included in the context
+   - Improves response quality by focusing only on highly relevant content
+
+These techniques collectively transform a basic RAG system into a sophisticated retrieval engine that captures the nuanced relationships in professional documents, enabling more accurate, contextually relevant responses to user inquiries.
 
 ## API Endpoints
 

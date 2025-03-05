@@ -3,8 +3,11 @@ from chromadb.config import Settings
 import chromadb
 from chromadb.api.types import IncludeEnum
 
-# Use the same relative path as in ingest.py: "../data/chroma"
-CHROMA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../data/chroma"))
+# Get project root for consistent path resolution
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+# Use the project root data directory for consistency across the application
+CHROMA_DIR = os.path.join(project_root, "data/chroma")
 
 client = chromadb.PersistentClient(
     path=CHROMA_DIR,
