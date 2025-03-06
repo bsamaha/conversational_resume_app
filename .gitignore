@@ -124,3 +124,10 @@ next-env.d.ts
 # Vite
 *.local
 
+# Terraform
+terraform/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
