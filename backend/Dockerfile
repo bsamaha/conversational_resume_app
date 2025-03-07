@@ -35,13 +35,21 @@ RUN pip cache purge && \
 FROM python:3.13-slim AS runtime
 WORKDIR /app
 
-# Install only runtime dependencies (no build tools)
+# Install runtime dependencies (including AWS CLI for S3 data transfer)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
+    unzip \
+    zip \
     && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
 
 # Copy installed packages from builder stage
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
@@ -50,9 +58,22 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY ./app ./app
 
+# Copy data ingestion scripts (needed for processing raw data if no ChromaDB exists)
+COPY ../data_ingestion ./data_ingestion
+
+# Copy startup script
+COPY ./startup.sh /app/startup.sh
+RUN chmod +x /app/startup.sh
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV ENV=production
+ENV USE_S3_DATA=true
+ENV AUTO_UPLOAD_DATA=true
+
+# Create needed directories
+RUN mkdir -p /app/data/raw /app/data/chroma
 
 # Healthcheck to verify the API is up
 HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
@@ -60,5 +81,5 @@ HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
 # Expose the API port
 EXPOSE 8000
 
-# Use a production-ready server command
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Use our startup script
+CMD ["/app/startup.sh"] 

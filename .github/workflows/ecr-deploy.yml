@@ -1,0 +1,90 @@
+name: Build and Push to ECR
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/ecr-deploy.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:  # Allows manual triggering
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_BACKEND_REPOSITORY: ${{ vars.ECR_BACKEND_REPOSITORY }}
+  ECR_FRONTEND_REPOSITORY: ${{ vars.ECR_FRONTEND_REPOSITORY }}
+  S3_DATA_BUCKET: ${{ vars.S3_DATA_BUCKET }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      
+    - name: Build, tag, and push backend image to Amazon ECR
+      id: build-backend
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: ${{ env.ECR_BACKEND_REPOSITORY }}
+        USE_S3_DATA: "true"
+        AUTO_UPLOAD_DATA: "true"
+      run: |
+        # Build the backend Docker image with environment variables for S3 data handling
+        docker build \
+          --build-arg USE_S3_DATA=$USE_S3_DATA \
+          --build-arg AUTO_UPLOAD_DATA=$AUTO_UPLOAD_DATA \
+          --build-arg S3_DATA_BUCKET=${{ env.S3_DATA_BUCKET }} \
+          -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$REPOSITORY:latest \
+          ./backend
+        
+        # Push both tags to ECR
+        docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$REPOSITORY:latest
+        
+        echo "backend-image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        
+    - name: Build, tag, and push frontend image to Amazon ECR
+      id: build-frontend
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: ${{ env.ECR_FRONTEND_REPOSITORY }}
+      run: |
+        # Build the frontend Docker image
+        docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$REPOSITORY:latest ./frontend
+        
+        # Push both tags to ECR
+        docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$REPOSITORY:latest
+        
+        echo "frontend-image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        
+    - name: Summary
+      run: |
+        echo "Successfully built and pushed images to ECR"
+        echo "Backend image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+        echo "Frontend image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}" 

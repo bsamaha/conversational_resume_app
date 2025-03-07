@@ -1,7 +1,8 @@
 # API Framework
 fastapi==0.115.11
 uvicorn[standard]==0.34.0
-pydantic==2.10.6
+pydantic>=2.0.0
+pydantic-settings>=2.4.0
 python-dotenv==1.0.1
 httpx==0.28.1
 python-multipart==0.0.20
@@ -20,4 +21,4 @@ langchain-chroma==0.2.2
 langgraph==0.3.2
 
 # AWS Integration
-boto3  # No version constraint for maximum compatibility
+boto3>=1.26.0

@@ -85,11 +85,15 @@ ipython_config.py
 *.sublime-workspace
 *.code-workspace
 
-# Data directories (adjust these as needed)
-data/chroma/
-data/raw/
+# Data directories (allow structure but ignore content)
+data/chroma/*
+!data/chroma/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
 data_ingestion/data/raw/*
+!data_ingestion/data/raw/.gitkeep
 data_ingestion/data/chroma/*
+!data_ingestion/data/chroma/.gitkeep
 
 # Frontend specific
 # Dependencies
@@ -124,10 +128,6 @@ next-env.d.ts
 # Vite
 *.local
 
-# Terraform
-terraform/.terraform/
-*.tfstate
-*.tfstate.backup
-*.tfvars
-.terraform.lock.hcl
+# Don't ignore GitHub workflows
+!.github/
 

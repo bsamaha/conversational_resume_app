@@ -1,27 +1,19 @@
 from pydantic_settings import BaseSettings
-from pydantic import Field, validator
+from pydantic import validator
 from functools import lru_cache
 import os
 import re
 from typing import Optional, List, Dict, Any
+import logging
+import boto3
+
+logger = logging.getLogger(__name__)
 
 # List of supported OpenAI embedding models and their dimensions
-SUPPORTED_EMBEDDING_MODELS: Dict[str, Dict[str, Any]] = {
-    "text-embedding-3-small": {
-        "dimensions": 1536,
-        "max_input_tokens": 8191,
-        "description": "Most cost-effective, 62.3% performance on MTEB, ~62,500 pages per dollar"
-    },
-    "text-embedding-3-large": {
-        "dimensions": 3072,
-        "max_input_tokens": 8191,
-        "description": "Highest performance, 64.6% on MTEB, ~9,615 pages per dollar"
-    },
-    "text-embedding-ada-002": {
-        "dimensions": 1536,
-        "max_input_tokens": 8191,
-        "description": "Legacy model, 61.0% on MTEB, ~12,500 pages per dollar"
-    }
+EMBEDDING_MODELS = {
+    "text-embedding-ada-002": 1536,
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072
 }
 
 def get_int_from_env(name: str, default: str) -> int:
@@ -33,75 +25,120 @@ def get_int_from_env(name: str, default: str) -> int:
     # Find the first sequence of digits
     match = re.search(r'\d+', value)
     if match:
-        return int(match.group(0))
+        return int(match.group())
+    
     return int(default)
 
+class ParameterStoreConfig:
+    """Handles retrieving configuration from AWS Parameter Store."""
+    
+    def __init__(self, region_name: Optional[str] = None):
+        self.client = None
+        self.cache: Dict[str, str] = {}
+        self.region_name = region_name or os.environ.get("AWS_REGION", "us-east-2")
+        self._initialize_client()
+    
+    def _initialize_client(self) -> None:
+        """Initialize the AWS SSM client."""
+        try:
+            self.client = boto3.client('ssm', region_name=self.region_name)
+            logger.info(f"Initialized AWS SSM client in region {self.region_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize AWS SSM client: {str(e)}")
+            logger.warning("Falling back to environment variables for configuration")
+    
+    def get_parameter(self, name: str, default: Optional[str] = None) -> Optional[str]:
+        """
+        Get a parameter from AWS Parameter Store.
+        Falls back to environment variables if Parameter Store is unavailable.
+        """
+        # Return from cache if available
+        if name in self.cache:
+            return self.cache[name]
+        
+        # If client initialization failed, fall back to environment variables
+        if self.client is None:
+            return os.environ.get(name, default)
+        
+        # Try to get from Parameter Store
+        try:
+            response = self.client.get_parameter(
+                Name=name,
+                WithDecryption=True
+            )
+            value = response['Parameter']['Value']
+            # Cache the value
+            self.cache[name] = value
+            return value
+        except Exception as e:
+            logger.warning(f"Failed to get parameter {name} from Parameter Store: {str(e)}")
+            logger.info(f"Falling back to environment variable for {name}")
+            # Fall back to environment variables
+            return os.environ.get(name, default)
+
 class Settings(BaseSettings):
-    # OpenAI Settings
-    openai_api_key: str
-    chroma_db_path: str = "./data/chroma"
-    model_name: str = "gpt-3.5-turbo"
+    """Application settings, with support for environment variables and Parameter Store."""
     
-    # Embedding model settings - using text-embedding-3-small as default
-    # Based on OpenAI documentation, this is the most cost-effective model
-    # with good performance (62.3% on MTEB eval) and high token efficiency (~62,500 pages per dollar)
-    embedding_model: str = "text-embedding-3-small"
+    # API settings
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
     
-    # AWS Settings
-    aws_access_key_id: Optional[str] = None
-    aws_secret_access_key: Optional[str] = None
-    aws_region: Optional[str] = None
-    aws_s3_bucket_name: Optional[str] = None
-    chat_log_storage_strategy: str = "session-end"  # or "periodic" or "real-time"
-    periodic_storage_interval: int = 300  # seconds, if using periodic strategy
+    # Database settings
+    CHROMA_DB_PATH: str = "./data/chroma"
+    
+    # AWS settings
+    AWS_REGION: str = "us-east-2"
+    AWS_S3_BUCKET_NAME: Optional[str] = None
+    CHAT_LOG_STORAGE_STRATEGY: str = "session-end"  # "session-end", "periodic", or "real-time"
+    PERIODIC_STORAGE_INTERVAL: int = 300  # seconds, if using periodic strategy
+    
+    # Model settings
+    MODEL_NAME: str = "gpt-3.5-turbo"
+    EMBEDDING_MODEL: str = "text-embedding-ada-002"
+    
+    # Secret settings that will be fetched from Parameter Store in production
+    OPENAI_API_KEY: Optional[str] = None
+    AWS_ACCESS_KEY_ID: Optional[str] = None 
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    
+    # Environment
+    ENV: str = "development"  # "development", "staging", or "production"
     
     class Config:
         env_file = ".env"
         case_sensitive = True
-        env_file_encoding = 'utf-8'
     
-    @validator('embedding_model')
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Only use Parameter Store in production and staging
+        if self.ENV in ("production", "staging"):
+            self._load_from_parameter_store()
+    
+    def _load_from_parameter_store(self):
+        """Load sensitive configuration from AWS Parameter Store."""
+        try:
+            store = ParameterStoreConfig(region_name=self.AWS_REGION)
+            
+            # Get secrets from Parameter Store
+            self.OPENAI_API_KEY = store.get_parameter("OPENAI_API_KEY", self.OPENAI_API_KEY)
+            self.AWS_ACCESS_KEY_ID = store.get_parameter("CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID", self.AWS_ACCESS_KEY_ID)
+            self.AWS_SECRET_ACCESS_KEY = store.get_parameter("CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET", self.AWS_SECRET_ACCESS_KEY)
+            
+            logger.info("Successfully loaded secrets from AWS Parameter Store")
+        except Exception as e:
+            logger.error(f"Failed to load from Parameter Store: {str(e)}")
+            logger.warning("Using values from environment variables instead")
+    
+    @validator('EMBEDDING_MODEL')
     def validate_embedding_model(cls, v):
-        """Validate that the embedding model is supported."""
-        if v not in SUPPORTED_EMBEDDING_MODELS:
-            supported_models = ", ".join(SUPPORTED_EMBEDDING_MODELS.keys())
-            raise ValueError(
-                f"Embedding model '{v}' is not supported. "
-                f"Supported models are: {supported_models}"
-            )
+        if v not in EMBEDDING_MODELS:
+            raise ValueError(f"Embedding model {v} not supported. Choose from: {', '.join(EMBEDDING_MODELS.keys())}")
         return v
     
     def get_embedding_dimension(self) -> int:
-        """Get the dimension of the configured embedding model."""
-        return SUPPORTED_EMBEDDING_MODELS[self.embedding_model]["dimensions"]
-    
-    def get_embedding_info(self) -> Dict[str, Any]:
-        """Get information about the configured embedding model."""
-        return SUPPORTED_EMBEDDING_MODELS[self.embedding_model]
+        """Get the dimension of the current embedding model."""
+        return EMBEDDING_MODELS.get(self.EMBEDDING_MODEL, 1536)
 
-@lru_cache()
-def get_settings() -> Settings:
-    """Get cached settings instance."""
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY environment variable is required")
-    
-    # Convert PERIODIC_STORAGE_INTERVAL to int, stripping any comments
-    periodic_interval_str = os.getenv("PERIODIC_STORAGE_INTERVAL", "300")
-    if periodic_interval_str:
-        periodic_interval = get_int_from_env("PERIODIC_STORAGE_INTERVAL", "300")
-    else:
-        periodic_interval = 300
-    
-    return Settings(
-        openai_api_key=api_key,
-        chroma_db_path=os.getenv("CHROMA_DB_PATH", "./data/chroma"),
-        model_name=os.getenv("MODEL_NAME", "gpt-3.5-turbo"),
-        embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        aws_region=os.getenv("AWS_REGION"),
-        aws_s3_bucket_name=os.getenv("AWS_S3_BUCKET_NAME"),
-        chat_log_storage_strategy=os.getenv("CHAT_LOG_STORAGE_STRATEGY", "session-end"),
-        periodic_storage_interval=periodic_interval
-    )
+# Create global settings instance
+settings = Settings()

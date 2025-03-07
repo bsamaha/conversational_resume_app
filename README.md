@@ -2,6 +2,29 @@
 
 Conversational Resume & Portfolio Chatbot (CRPC) is an AI-powered chatbot that lets you interactively explore your resume and portfolio via a conversational interface powered by Retrieval-Augmented Generation (RAG). The application integrates a scalable FastAPI backend with semantic search using ChromaDB and OpenAI embeddings, alongside a modern React-based frontend, all containerized via Docker for straightforward deployment.
 
+## Quick Start
+
+1. **Clone and setup:**
+   ```bash
+   git clone https://github.com/yourusername/conversational-resume.git
+   cd conversational-resume
+   cp .env.example .env
+   # Edit .env with your OpenAI API key and other settings
+   ```
+
+2. **Add your resume data:**
+   - Create a `data/raw` directory
+   - Add your resume/portfolio markdown files to this directory
+
+3. **Run with Docker (recommended):**
+   ```bash
+   docker-compose up --build
+   ```
+   
+4. **Access the application:**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+
 ## Features
 
 - 🤖 **Interactive Chat Interface:** Engage in natural conversations with the AI assistant.
@@ -23,9 +46,40 @@ Conversational Resume & Portfolio Chatbot (CRPC) is an AI-powered chatbot that l
 
 ```
 conversational-resume/
+├── .github/              # GitHub-specific files
+│   └── workflows/        # GitHub Actions workflow files
+│       └── ecr-deploy.yml # CI/CD workflow for ECR deployment
 ├── backend/              # FastAPI backend
+│   ├── app/              # Application code
+│   │   ├── api/          # API endpoints
+│   │   ├── core/         # Core application logic
+│   │   │   └── config.py # Configuration with Parameter Store integration
+│   │   ├── models/       # Data models
+│   │   ├── schemas/      # Request/response schemas
+│   │   ├── services/     # Business logic services
+│   │   └── utils/        # Utility functions
+│   ├── tests/            # Backend tests
+│   └── requirements.txt  # Python dependencies
 ├── frontend/             # React frontend
+│   ├── src/              # Source code
+│   │   ├── components/   # React components
+│   │   ├── services/     # API services
+│   │   ├── styles/       # CSS styles
+│   │   └── types/        # TypeScript type definitions
+│   ├── public/           # Static assets
+│   └── package.json      # Node.js dependencies
 ├── data_ingestion/       # Data processing scripts & ingestion tool
+│   ├── ingest.py         # Main ingestion script
+│   ├── test_vector_db.py # Utility for testing vector database
+│   ├── test_chroma.py    # Test for ChromaDB functionality
+│   └── requirements.txt  # Python dependencies
+├── docker-compose.yml    # Docker configuration for all services
+├── .env.example          # Example environment variables
+├── docs/                 # Documentation
+│   └── ci_cd_workflow.md # CI/CD workflow documentation
+├── scripts/              # Helper scripts
+│   ├── create_ecr_repos.sh # Script to create ECR repositories
+│   └── setup_parameter_store.sh # Script to set up Parameter Store secrets
 └── data/                 # Data storage (raw documents, ChromaDB data)
     ├── raw/              # Original markdown resume files
     └── chroma/           # Vector database storage
@@ -36,6 +90,161 @@ The project uses a standardized data directory structure:
 - Resume documents and markdown files go in `data/raw/`
 - The vector database is stored in `data/chroma/`
 - This single data location is referenced consistently across all components
+- Empty `.gitkeep` files ensure the directory structure is maintained in Git while ignoring the actual data files
+
+## Infrastructure
+
+This repository contains only the application code. The infrastructure-as-code (Terraform) has been moved to a separate repository for better separation of concerns and to follow infrastructure best practices.
+
+## Continuous Integration/Deployment
+
+This project uses GitHub Actions for CI/CD to automatically build and push Docker images to Amazon ECR when code is updated.
+
+### Prerequisites for GitHub Actions
+
+1. **AWS ECR Repositories**:
+   - Create two repositories in Amazon ECR:
+     - One for the backend image
+     - One for the frontend image
+   - You can use the included helper script to create these repositories:
+     ```bash
+     # Make the script executable if needed
+     chmod +x scripts/create_ecr_repos.sh
+     
+     # Run the script
+     ./scripts/create_ecr_repos.sh
+     ```
+
+2. **IAM User for GitHub Actions**:
+   - Create an IAM user with permissions to push to ECR
+   - Attach the `AmazonECR-FullAccess` policy or create a custom policy with these minimum permissions:
+     ```json
+     {
+       "Version": "2012-10-17",
+       "Statement": [
+         {
+           "Effect": "Allow",
+           "Action": [
+             "ecr:CompleteLayerUpload",
+             "ecr:GetAuthorizationToken",
+             "ecr:UploadLayerPart",
+             "ecr:InitiateLayerUpload",
+             "ecr:BatchCheckLayerAvailability",
+             "ecr:PutImage"
+           ],
+           "Resource": "*"
+         }
+       ]
+     }
+     ```
+
+3. **GitHub Repository Secrets**:
+   - Add the following secrets to your GitHub repository:
+     - `AWS_ACCESS_KEY_ID`: Your IAM user's access key
+     - `AWS_SECRET_ACCESS_KEY`: Your IAM user's secret key
+     - `AWS_REGION`: The AWS region your ECR repositories are in
+     - `ECR_BACKEND_REPOSITORY`: The name of your backend ECR repository
+     - `ECR_FRONTEND_REPOSITORY`: The name of your frontend ECR repository
+   - See the [GitHub Actions documentation](.github/workflows/README.md) for more details
+
+### Workflow Behavior
+
+The GitHub Actions workflow:
+- Triggers when code is pushed to the `main` branch (affecting backend, frontend, or Docker configuration)
+- Builds Docker images for both the backend and frontend
+- Tags images with both the commit SHA and `latest`
+- Pushes the images to their respective ECR repositories
+- Can be manually triggered using the GitHub Actions interface
+
+For a detailed explanation of the CI/CD workflow with diagrams, see [CI/CD Workflow Documentation](docs/ci_cd_workflow.md).
+
+## Secret Management
+
+This project uses AWS Systems Manager Parameter Store for managing secrets in production environments. This provides a secure, cost-effective way to store and access sensitive information.
+
+### Parameter Store Structure
+
+The application expects the following parameters to be available in Parameter Store:
+
+- `OPENAI_API_KEY`: Your OpenAI API key
+- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID`: AWS access key used by the application
+- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET`: AWS secret key used by the application
+
+### Environment-Based Configuration
+
+The application uses different configuration sources based on the environment:
+
+- **Development**: Uses `.env` file or environment variables
+- **Staging/Production**: Automatically fetches secrets from Parameter Store while falling back to environment variables if needed
+
+### Creating Parameters in Parameter Store
+
+Use the provided helper script to easily set up your Parameter Store secrets:
+
+```bash
+# Make the script executable
+chmod +x scripts/setup_parameter_store.sh
+
+# Run the script
+./scripts/setup_parameter_store.sh
+```
+
+This interactive script will:
+- Prompt you for your secrets
+- Store them in Parameter Store as SecureString parameters
+- Optionally create an IAM policy for access
+
+Alternatively, you can manually create the parameters using the AWS CLI:
+
+```bash
+# Store OpenAI API key
+aws ssm put-parameter \
+    --name "OPENAI_API_KEY" \
+    --value "your-api-key" \
+    --type "SecureString"
+
+# Store AWS credentials
+aws ssm put-parameter \
+    --name "CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID" \
+    --value "your-access-key" \
+    --type "SecureString"
+
+aws ssm put-parameter \
+    --name "CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET" \
+    --value "your-secret-key" \
+    --type "SecureString"
+```
+
+### Required IAM Permissions
+
+For the application to access Parameter Store, ensure your IAM role has these permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters",
+        "ssm:DescribeParameters"
+      ],
+      "Resource": "arn:aws:ssm:*:*:parameter/*"
+    }
+  ]
+}
+```
+
+### Troubleshooting Parameter Store Access
+
+If you encounter issues with Parameter Store access:
+
+1. **Verify IAM Permissions**: Ensure your IAM user or role has the permissions listed above
+2. **Check Parameter Names**: Verify that parameters exist with exactly the names expected by the application
+3. **AWS Profiles**: If using multiple AWS profiles, make sure the correct profile is active (`AWS_PROFILE` environment variable)
+4. **Permission Propagation**: IAM permission changes can take 5-10 minutes to propagate
+5. **Local Fallback**: In development, the application will fall back to using values from your `.env` file if Parameter Store access fails
 
 ## Setup
 
@@ -253,4 +462,130 @@ The backend provides the following key endpoints:
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for further details. 
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for further details.
+
+## CI/CD and Data Handling
+
+### GitHub Actions Workflow
+
+The GitHub Actions workflow:
+- Triggers when code is pushed to the `main` branch (affecting backend, frontend, or Docker configuration)
+- Builds Docker images for both the backend and frontend
+- Tags images with both the commit SHA and `latest`
+- Pushes the images to their respective ECR repositories
+- Can be manually triggered using the GitHub Actions interface
+
+For a detailed explanation of the CI/CD workflow with diagrams, see [CI/CD Workflow Documentation](docs/ci_cd_workflow.md).
+
+### S3 Data Handling
+
+The application can store and retrieve ChromaDB vector embeddings from S3, which is particularly useful in production deployments:
+
+#### How It Works
+1. **Local Development:** 
+   - By default, the application uses local storage for ChromaDB data
+   - Set `USE_S3_DATA=false` in your `.env` file
+
+2. **Production Environment:**
+   - When deploying to production, set `USE_S3_DATA=true`
+   - The container will attempt to download ChromaDB data from S3 on startup
+   - If no data is found, it will process raw data from `data/raw` (if available)
+   - With `AUTO_UPLOAD_DATA=true`, newly generated ChromaDB data is automatically uploaded to S3
+
+#### Setting Up S3 Data Storage
+
+1. **Create an S3 Bucket:**
+   ```bash
+   aws s3 mb s3://your-app-data-bucket
+   ```
+
+2. **Upload Initial ChromaDB Data:**
+   ```bash
+   chmod +x scripts/upload_chroma_to_s3.sh
+   ./scripts/upload_chroma_to_s3.sh your-app-data-bucket production
+   ```
+
+3. **Configure GitHub Secrets:**
+   - Add `S3_DATA_BUCKET` to your repository secrets
+   - Ensure your IAM user has S3 permissions
+
+4. **Required IAM Permissions:**
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": [
+           "s3:GetObject",
+           "s3:PutObject",
+           "s3:ListBucket"
+         ],
+         "Resource": [
+           "arn:aws:s3:::your-app-data-bucket",
+           "arn:aws:s3:::your-app-data-bucket/*"
+         ]
+       }
+     ]
+   }
+   ```
+
+#### Windows Compatibility
+
+For Windows users, we provide PowerShell alternatives to the bash scripts:
+
+1. **Using PowerShell for S3 Uploads:**
+   ```powershell
+   # Run with execution policy bypass
+   powershell -ExecutionPolicy Bypass -File .\scripts\upload_chroma_to_s3.ps1 your-bucket-name production
+   ```
+
+2. **Alternative for Git Bash on Windows:**
+   If you prefer Git Bash but don't have the `zip` command, use the Windows-friendly script that uses 7-Zip:
+   ```bash
+   chmod +x scripts/upload_chroma_to_s3_win.sh
+   ./scripts/upload_chroma_to_s3_win.sh your-bucket-name production
+   ```
+   Note: This requires 7-Zip to be installed at the default location (`C:\Program Files\7-Zip\`).
+
+#### Troubleshooting S3 Data Uploads
+
+- **AWS Credentials**: Ensure your AWS credentials are configured correctly with `aws configure`
+- **Permissions**: Your IAM user needs `s3:PutObject` and `s3:GetObject` permissions
+- **Region**: Make sure the AWS region configured matches your S3 bucket's region
+- **AWS Profile**: If you use multiple AWS profiles, specify the correct one with `--profile` or set the `AWS_PROFILE` environment variable
+
+## Development Notes
+
+### Dependency Management
+
+The application uses specific version constraints in `requirements.txt` files to ensure compatibility:
+
+1. **Version Pinning**:
+   - Core dependencies have specific versions pinned (e.g., `langchain==0.3.20`)
+   - This prevents unexpected breaking changes when dependencies update
+
+2. **Important Constraints**:
+   - `pydantic-settings>=2.4.0`: Required for compatibility with `langchain-community==0.3.19`
+   - `langchain-core==0.3.41`: Ensures compatibility with other LangChain components
+   - `openai==1.65.2`: Provides stability when interacting with the OpenAI API
+
+If you encounter dependency conflicts:
+- Check version constraints between `pydantic-settings` and `langchain-community`
+- Update both backend and data_ingestion requirements.txt files to maintain consistency
+- Run `pip install --upgrade pip` before installing dependencies
+
+### Debugging
+
+1. **Parameter Store Errors**: 
+   - If you see errors accessing AWS Parameter Store, check the [Troubleshooting Parameter Store Access](#troubleshooting-parameter-store-access) section
+   - The application will fall back to environment variables in development
+
+2. **ChromaDB Data Issues**:
+   - If your responses seem incorrect, verify ChromaDB data is properly loaded
+   - Check logs for any errors during data loading
+   - Try rebuilding the ChromaDB data by running the ingestion script
+
+3. **Docker Issues**:
+   - Use `docker-compose logs backend` to view detailed backend logs
+   - The startup script includes detailed logging of each step 
