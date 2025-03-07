@@ -26,7 +26,24 @@ def get_chroma_client():
             raise FileNotFoundError(f"ChromaDB directory not found: {persist_dir}")
 
         # Log the contents of the directory for debugging
-        logger.info(f"Contents of ChromaDB directory: {os.listdir(persist_dir)}")
+        try:
+            contents = os.listdir(persist_dir)
+            logger.info(f"Contents of ChromaDB directory: {contents}")
+            
+            # Check if we have typical ChromaDB files
+            if 'chroma.sqlite3' in contents:
+                logger.info("Found chroma.sqlite3 database file")
+            
+            # List any subdirectories to help diagnose issues
+            for item in contents:
+                item_path = os.path.join(persist_dir, item)
+                if os.path.isdir(item_path):
+                    logger.info(f"Subdirectory found: {item} with contents: {os.listdir(item_path)}")
+        except Exception as dir_err:
+            logger.error(f"Error listing directory contents: {str(dir_err)}")
+        
+        # Log the ChromaDB version for debugging
+        logger.info(f"ChromaDB version: {chromadb.__version__}")
 
         chroma_client = chromadb.PersistentClient(
             path=persist_dir,
@@ -35,13 +52,12 @@ def get_chroma_client():
 
         collection_name = "resume_data"
         
-        # Check if collection exists
-        collection_names = [col.name for col in chroma_client.list_collections()]
-        logger.info(f"Available collections: {collection_names}")
-        
-        # Verify we can access the collection
+        # Check if collection exists - in v0.6.0, list_collections returns names directly
         try:
-            # Try to get the collection first
+            collection_names = chroma_client.list_collections()
+            logger.info(f"Available collections: {collection_names}")
+            
+            # Verify we can access the collection
             if collection_name in collection_names:
                 collection = chroma_client.get_collection(collection_name)
                 count = collection.count()
@@ -50,7 +66,6 @@ def get_chroma_client():
                 # Collection doesn't exist, but we have a valid client
                 logger.warning(f"Collection '{collection_name}' not found. You may need to run the data ingestion process.")
                 # We'll still return the client, but searches will need to handle the missing collection
-                
         except Exception as e:
             logger.error(f"Error accessing collection '{collection_name}': {str(e)}")
             raise
@@ -128,8 +143,13 @@ def get_collection(client):
         return client.get_collection("resume_data")
     except Exception as e:
         logger.error(f"Error retrieving 'resume_data' collection: {str(e)}")
-        if collections := client.list_collections():
-            logger.info(f"Available collections: {[col.name for col in collections]}")
+        try:
+            # In v0.6.0 API, list_collections returns name strings directly
+            collections = client.list_collections()
+            if collections:
+                logger.info(f"Available collections: {collections}")
+        except Exception as list_err:
+            logger.error(f"Error listing collections: {str(list_err)}")
 
         # If no collections exist, this might be a path/extraction issue
         raise HTTPException(
@@ -429,6 +449,10 @@ async def perform_search(collection, query_embedding: List[float], query_type: s
                 logger.warning("Collection is empty - no documents to search")
                 return "I'm sorry, but my resume database doesn't contain any documents. Please ensure the data has been properly ingested."
             logger.info(f"Searching collection with {doc_count} documents")
+        except NotImplementedError as api_err:
+            # Handle API version incompatibility issues
+            logger.error(f"ChromaDB API compatibility error: {str(api_err)}")
+            return "I'm sorry, but I'm experiencing an issue with my resume database API. Please report this to the administrator."
         except Exception as e:
             logger.error(f"Error counting documents in collection: {str(e)}")
             # Continue with the search anyway, in case count() failed but query might work

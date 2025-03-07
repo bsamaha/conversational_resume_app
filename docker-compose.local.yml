@@ -5,7 +5,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       args:
-        USE_S3_DATA: "false"  # Disable S3 data in local development
+        USE_S3_DATA: "true" 
         AUTO_UPLOAD_DATA: "false"
     container_name: backend-local
     volumes:
@@ -14,7 +14,10 @@ services:
       - .env  # Load environment variables from .env file
     environment:
       - CHROMA_DB_PATH=/app/data/chroma  # Set ChromaDB path inside the container
-      - ENV=development  # Set environment to development
+      - ENV=production  # Set environment to development
+      - S3_DATA_BUCKET=${S3_DATA_BUCKET:-conversational-resume}
+      - USE_S3_DATA=${USE_S3_DATA:-true}
+      - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}
     restart: unless-stopped
     networks:
       - app-network

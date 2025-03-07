@@ -11,7 +11,7 @@ services:
       - CHROMA_DB_PATH=/app/data/chroma  # Set ChromaDB path inside the container
       - ENV=production  # Set environment to production
       - AWS_REGION=${AWS_REGION:-us-east-2}  # Use AWS_REGION from .env or default to us-east-2
-      - S3_DATA_BUCKET=${S3_DATA_BUCKET:-your-app-data-bucket}  # S3 bucket for data storage
+      - S3_DATA_BUCKET=${S3_DATA_BUCKET:-conversational-resume}  # S3 bucket for data storage
       - USE_S3_DATA=${USE_S3_DATA:-true}  # Whether to use S3 for data (default: true for production)
       - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}  # Whether to automatically upload generated data
     restart: unless-stopped
