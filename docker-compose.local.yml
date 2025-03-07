@@ -1,19 +1,20 @@
 services:
   # Backend FastAPI service
   backend:
-    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_BACKEND_REPOSITORY}:latest
-    container_name: backend
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        USE_S3_DATA: "false"  # Disable S3 data in local development
+        AUTO_UPLOAD_DATA: "false"
+    container_name: backend-local
     volumes:
       - ./data:/app/data  # Mount the data directory for persistent storage
     env_file:
       - .env  # Load environment variables from .env file
     environment:
       - CHROMA_DB_PATH=/app/data/chroma  # Set ChromaDB path inside the container
-      - ENV=production  # Set environment to production
-      - AWS_REGION=${AWS_REGION:-us-east-2}  # Use AWS_REGION from .env or default to us-east-2
-      - S3_DATA_BUCKET=${S3_DATA_BUCKET:-your-app-data-bucket}  # S3 bucket for data storage
-      - USE_S3_DATA=${USE_S3_DATA:-true}  # Whether to use S3 for data (default: true for production)
-      - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}  # Whether to automatically upload generated data
+      - ENV=development  # Set environment to development
     restart: unless-stopped
     networks:
       - app-network
@@ -28,13 +29,13 @@ services:
 
   # Frontend React service
   frontend:
-    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND_REPOSITORY}:latest
-    container_name: frontend
+    build: ./frontend
+    container_name: frontend-local
     restart: unless-stopped
     ports:
       - "3000:80"  # Expose the frontend on port 3000, served by Nginx on port 80 inside the container
     environment:
-      - REACT_APP_API_URL=http://backend:8000  # Connect to the backend service
+      - REACT_APP_API_URL=http://backend-local:8000  # Connect to the backend service
     depends_on:
       backend:
         condition: service_healthy  # Wait for backend to be healthy before starting

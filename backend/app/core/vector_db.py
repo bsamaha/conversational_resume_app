@@ -25,18 +25,34 @@ def get_chroma_client():
             logger.error(f"ChromaDB persistence directory does not exist: {persist_dir}")
             raise FileNotFoundError(f"ChromaDB directory not found: {persist_dir}")
 
+        # Log the contents of the directory for debugging
+        logger.info(f"Contents of ChromaDB directory: {os.listdir(persist_dir)}")
+
         chroma_client = chromadb.PersistentClient(
             path=persist_dir,
             settings=ChromaSettings(anonymized_telemetry=False)
         )
 
+        collection_name = "resume_data"
+        
+        # Check if collection exists
+        collection_names = [col.name for col in chroma_client.list_collections()]
+        logger.info(f"Available collections: {collection_names}")
+        
         # Verify we can access the collection
         try:
-            collection = chroma_client.get_collection("resume_data")
-            count = collection.count()
-            logger.info(f"Successfully connected to ChromaDB. Collection 'resume_data' contains {count} documents.")
+            # Try to get the collection first
+            if collection_name in collection_names:
+                collection = chroma_client.get_collection(collection_name)
+                count = collection.count()
+                logger.info(f"Successfully connected to ChromaDB. Collection '{collection_name}' contains {count} documents.")
+            else:
+                # Collection doesn't exist, but we have a valid client
+                logger.warning(f"Collection '{collection_name}' not found. You may need to run the data ingestion process.")
+                # We'll still return the client, but searches will need to handle the missing collection
+                
         except Exception as e:
-            logger.error(f"Collection 'resume_data' not found or empty: {str(e)}")
+            logger.error(f"Error accessing collection '{collection_name}': {str(e)}")
             raise
 
         return chroma_client
@@ -69,8 +85,13 @@ async def get_relevant_context(query: str, k: int = 5) -> str:
         k = adjust_search_parameters(k, query_type)
         
         # Step 3: Initialize the ChromaDB client and retrieve the collection
-        client = get_chroma_client()
-        collection = get_collection(client)
+        try:
+            client = get_chroma_client()
+            collection = get_collection(client)
+        except HTTPException as e:
+            # Log the error but provide a fallback generic response that the system can use
+            logger.error(f"Failed to access ChromaDB: {str(e)}")
+            return generate_fallback_context(query_type)
         
         # Step 4: Generate query embeddings
         logger.info("Generating embeddings for query")
@@ -102,20 +123,18 @@ def adjust_search_parameters(k: int, query_type: str) -> int:
         return max(k, 4)  # Default number for general questions
         
 def get_collection(client):
-    """Retrieve and validate the ChromaDB collection."""
+    """Get the ChromaDB collection or handle errors appropriately"""
     try:
-        collection = client.get_collection("resume_data")
-        logger.info("Successfully retrieved collection 'resume_data'")
-
-        # Check collection count
-        if collection.count() == 0:
-            logger.warning("Collection is empty, cannot verify embedding dimensions.")
-
-        return collection
+        return client.get_collection("resume_data")
     except Exception as e:
-        logger.error(f"Failed to get collection: {str(e)}")
-        raise ValueError(
-            "No relevant context found - collection not available."
+        logger.error(f"Error retrieving 'resume_data' collection: {str(e)}")
+        if collections := client.list_collections():
+            logger.info(f"Available collections: {[col.name for col in collections]}")
+
+        # If no collections exist, this might be a path/extraction issue
+        raise HTTPException(
+            status_code=500, 
+            detail="Resume data collection not found. The ChromaDB extraction may have failed."
         ) from e
 
 def format_document_with_metadata(document: str, metadata: Dict[str, Any]) -> str:
@@ -398,6 +417,22 @@ def expand_query(query: str, query_type: str) -> str:
 async def perform_search(collection, query_embedding: List[float], query_type: str, k: int) -> str:
     """Perform semantic search in ChromaDB and process results."""
     try:
+        # Verify collection is valid
+        if not collection:
+            logger.error("Invalid collection object provided to perform_search")
+            return "I'm sorry, but I don't have access to my resume data at the moment. The database collection appears to be missing or inaccessible."
+            
+        # Check if collection has documents
+        try:
+            doc_count = collection.count()
+            if doc_count == 0:
+                logger.warning("Collection is empty - no documents to search")
+                return "I'm sorry, but my resume database doesn't contain any documents. Please ensure the data has been properly ingested."
+            logger.info(f"Searching collection with {doc_count} documents")
+        except Exception as e:
+            logger.error(f"Error counting documents in collection: {str(e)}")
+            # Continue with the search anyway, in case count() failed but query might work
+        
         # Query the collection with a higher k for initial filtering
         initial_k = min(k * 2, 12)  # Get more candidates than needed, but cap at 12
         logger.info(f"Querying collection with initial_k={initial_k}")
@@ -554,3 +589,49 @@ def handle_dimension_mismatch(error_msg: str, query_embedding: List[float]):
     )
     
     logger.error(admin_msg)
+
+def generate_fallback_context(query_type: str) -> str:
+    """Generate a fallback context based on the query type when ChromaDB is unavailable."""
+    logger.warning(f"Using fallback context for query type: {query_type}")
+    
+    # Base fallback message for all types
+    base_message = (
+        "I apologize, but I'm currently unable to access my detailed resume database. "
+        "Here's some general information that might help: "
+    )
+    
+    if query_type == "technical_expertise":
+        return base_message + (
+            "I have experience with Python, JavaScript, Docker, Kubernetes, AWS, and various database technologies. "
+            "I've worked on IoT systems, data pipelines, and cloud infrastructure. "
+            "My strongest skills are in backend development and cloud architecture."
+        )
+    
+    elif query_type == "career_history":
+        return base_message + (
+            "I most recently worked at Occidental Petroleum as a Senior Software Engineer. "
+            "Before that, I was at Clutch Sports Data, and earlier at u-blox as an IoT engineer. "
+            "I started my career after the Marine Corps at Entergy working on SCADA systems."
+        )
+    
+    elif query_type == "basic_info":
+        return base_message + (
+            "I'm a software engineer with experience in backend development, cloud architecture, and IoT systems. "
+            "I have about 7 years of professional software development experience across different industries. "
+            "I'm particularly interested in distributed systems and building scalable applications."
+        )
+    
+    elif query_type == "project_details":
+        return base_message + (
+            "I've worked on various projects including IoT device management platforms, "
+            "data processing pipelines, and Kubernetes deployments. "
+            "One notable project was a Kubernetes homelab setup for running personal applications."
+        )
+    
+    else:
+        # Generic fallback for all other query types
+        return base_message + (
+            "I'm a software engineer with experience in backend development, IoT, and cloud services. "
+            "I've worked at several companies including Occidental Petroleum and have expertise in "
+            "Python, cloud technologies, and distributed systems."
+        )

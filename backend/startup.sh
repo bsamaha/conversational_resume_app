@@ -31,13 +31,26 @@ if [ "$USE_S3_DATA" = "true" ] && [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECR
         # Remove existing data to avoid conflicts
         rm -rf "${CHROMA_DIR:?}/"*
         
-        # Unzip to the data directory
-        unzip -o /tmp/chroma_latest.zip -d /
+        # Create a temporary directory for extraction
+        mkdir -p /tmp/chroma_extract
+        
+        # Unzip to the temporary directory first
+        unzip -o /tmp/chroma_latest.zip -d /tmp/chroma_extract
+        
+        # Move the contents to the correct location
+        if [ -d "/tmp/chroma_extract/chroma" ]; then
+            # Copy contents of the chroma directory, not the directory itself
+            cp -R /tmp/chroma_extract/chroma/* "${CHROMA_DIR}/"
+        else
+            # If the zip doesn't have a nested chroma folder, copy everything
+            cp -R /tmp/chroma_extract/* "${CHROMA_DIR}/"
+        fi
         
         echo "Cleaning up..."
         rm /tmp/chroma_latest.zip
+        rm -rf /tmp/chroma_extract
         
-        echo "ChromaDB data successfully downloaded and extracted."
+        echo "ChromaDB data successfully downloaded and extracted to ${CHROMA_DIR}"
     else
         echo "No ChromaDB data found in S3."
     fi
