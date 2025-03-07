@@ -77,8 +77,8 @@ jobs:
         # Verify the frontend directory exists
         ls -la ./frontend
         
-        # Build the frontend Docker image using explicit context path
-        docker buildx build \
+        # Build the frontend Docker image using standard docker build command
+        docker build \
           -f ./frontend/Dockerfile \
           -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
           -t $ECR_REGISTRY/$REPOSITORY:latest \
