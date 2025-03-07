@@ -74,8 +74,15 @@ jobs:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         REPOSITORY: ${{ env.ECR_FRONTEND_REPOSITORY }}
       run: |
-        # Build the frontend Docker image
-        docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$REPOSITORY:latest ./frontend
+        # Verify the frontend directory exists
+        ls -la ./frontend
+        
+        # Build the frontend Docker image using explicit context path
+        docker buildx build \
+          -f ./frontend/Dockerfile \
+          -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
+          -t $ECR_REGISTRY/$REPOSITORY:latest \
+          ./frontend
         
         # Push both tags to ECR
         docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
