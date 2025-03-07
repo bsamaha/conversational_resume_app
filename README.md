@@ -8,20 +8,41 @@ Conversational Resume & Portfolio Chatbot (CRPC) is an AI-powered chatbot that l
    ```bash
    git clone https://github.com/yourusername/conversational-resume.git
    cd conversational-resume
+   ```
+
+2. **Setup based on environment:**
+   
+   **For local development:**
+   ```bash
    cp .env.example .env
    # Edit .env with your OpenAI API key and other settings
    ```
+   
+   **For production:** No .env file needed - use Parameter Store instead (see Secret Management section)
 
-2. **Add your resume data:**
+3. **Add your resume data:**
    - Create a `data/raw` directory
    - Add your resume/portfolio markdown files to this directory
 
-3. **Run with Docker (recommended):**
+4. **Run with Docker:**
+   
+   **For local development:**
    ```bash
-   docker-compose up --build
+   docker-compose -f docker-compose.local.yml up --build
    ```
    
-4. **Access the application:**
+   **For production deployment:**
+   ```bash
+   # Set required environment variables for pulling ECR images
+   export AWS_ACCOUNT_ID=your_account_id
+   export AWS_REGION=your_region
+   export ECR_BACKEND_REPOSITORY=your_backend_repo
+   export ECR_FRONTEND_REPOSITORY=your_frontend_repo
+   
+   docker-compose up
+   ```
+   
+5. **Access the application:**
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
 
@@ -43,6 +64,8 @@ Conversational Resume & Portfolio Chatbot (CRPC) is an AI-powered chatbot that l
 - AWS credentials for S3 storage (optional)
 
 ## Project Structure
+
+The actual repository structure:
 
 ```
 conversational-resume/
@@ -73,7 +96,8 @@ conversational-resume/
 │   ├── test_vector_db.py # Utility for testing vector database
 │   ├── test_chroma.py    # Test for ChromaDB functionality
 │   └── requirements.txt  # Python dependencies
-├── docker-compose.yml    # Docker configuration for all services
+├── docker-compose.yml    # Docker configuration for production deployment
+├── docker-compose.local.yml # Docker configuration for local development
 ├── .env.example          # Example environment variables
 ├── docs/                 # Documentation
 │   └── ci_cd_workflow.md # CI/CD workflow documentation
@@ -91,6 +115,52 @@ The project uses a standardized data directory structure:
 - The vector database is stored in `data/chroma/`
 - This single data location is referenced consistently across all components
 - Empty `.gitkeep` files ensure the directory structure is maintained in Git while ignoring the actual data files
+
+## Docker Compose Configuration
+
+This project includes two Docker Compose files for different purposes:
+
+### 1. `docker-compose.local.yml` - Local Development
+
+This file is designed for local development and builds the containers directly from source code:
+
+```yaml
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        USE_S3_DATA: "true" 
+        AUTO_UPLOAD_DATA: "false"
+    # ...other configuration
+    
+  frontend:
+    build: ./frontend
+    # ...other configuration
+```
+
+Use this file when developing locally:
+```bash
+docker-compose -f docker-compose.local.yml up --build
+```
+
+### 2. `docker-compose.yml` - Production Deployment
+
+This file is designed for production deployment and pulls pre-built images from ECR:
+
+```yaml
+services:
+  backend:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_BACKEND_REPOSITORY}:latest
+    # ...other configuration
+    
+  frontend:
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_FRONTEND_REPOSITORY}:latest
+    # ...other configuration
+```
+
+Use this file for production deployment after images have been built and pushed to ECR.
 
 ## Infrastructure
 
@@ -142,9 +212,11 @@ This project uses GitHub Actions for CI/CD to automatically build and push Docke
    - Add the following secrets to your GitHub repository:
      - `AWS_ACCESS_KEY_ID`: Your IAM user's access key
      - `AWS_SECRET_ACCESS_KEY`: Your IAM user's secret key
+   - Add the following repository variables:
      - `AWS_REGION`: The AWS region your ECR repositories are in
      - `ECR_BACKEND_REPOSITORY`: The name of your backend ECR repository
      - `ECR_FRONTEND_REPOSITORY`: The name of your frontend ECR repository
+     - `S3_DATA_BUCKET`: Your S3 bucket name for data storage
    - See the [GitHub Actions documentation](.github/workflows/README.md) for more details
 
 ### Workflow Behavior
@@ -167,15 +239,17 @@ This project uses AWS Systems Manager Parameter Store for managing secrets in pr
 The application expects the following parameters to be available in Parameter Store:
 
 - `OPENAI_API_KEY`: Your OpenAI API key
-- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID`: AWS access key used by the application
-- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET`: AWS secret key used by the application
+- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID`: AWS access key used by the application (if not using IAM roles)
+- `CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET`: AWS secret key used by the application (if not using IAM roles)
 
 ### Environment-Based Configuration
 
 The application uses different configuration sources based on the environment:
 
 - **Development**: Uses `.env` file or environment variables
-- **Staging/Production**: Automatically fetches secrets from Parameter Store while falling back to environment variables if needed
+- **Production**: Automatically fetches secrets from Parameter Store only - no .env file needed
+  - When deploying with EC2 or ECS, use IAM roles instead of access keys for best security
+  - The application will detect the AWS environment and use the instance credentials
 
 ### Creating Parameters in Parameter Store
 
@@ -203,7 +277,7 @@ aws ssm put-parameter \
     --value "your-api-key" \
     --type "SecureString"
 
-# Store AWS credentials
+# Store AWS credentials (only if not using IAM roles)
 aws ssm put-parameter \
     --name "CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID" \
     --value "your-access-key" \
@@ -255,6 +329,8 @@ If you encounter issues with Parameter Store access:
    ```
 
 2. **Configure Environment Variables:**
+   
+   **For local development:**
    Copy the sample environment file and update with your settings:
    ```bash
    cp .env.example .env
@@ -264,10 +340,15 @@ If you encounter issues with Parameter Store access:
    - AWS credentials (for chat history storage)
    - Other configuration options
 
-   **AWS Credentials Setup:**
-   For chat log storage in S3, you'll need to provide AWS credentials in the `.env` file:
+   **For production deployment:**
+   - No .env file is needed
+   - All secrets are retrieved from Parameter Store
+   - When using EC2 or ECS, the application will use the instance's IAM role
+
+   **AWS Credentials Setup (Development Only):**
+   For chat log storage in S3 during local development, you'll need to provide AWS credentials in the `.env` file:
    ```
-   # AWS credentials 
+   # AWS credentials (DEVELOPMENT ONLY - use IAM roles or Parameter Store in production)
    AWS_ACCESS_KEY_ID=your_access_key_id
    AWS_SECRET_ACCESS_KEY=your_secret_access_key
    AWS_SESSION_TOKEN=your_session_token  # Only required for temporary credentials
@@ -275,18 +356,20 @@ If you encounter issues with Parameter Store access:
    AWS_S3_BUCKET_NAME=your_bucket_name
    ```
 
-   **Notes on AWS credentials:**
-   - For permanent credentials (starting with AKIA), only access key and secret key are needed
-   - For temporary credentials (starting with ASIA), you must include the session token
-   - Consider using instance profiles/IAM roles in production environments
+   **SECURITY WARNING:** 
+   - Never commit `.env` files containing real credentials to version control
+   - For production, use IAM roles or Parameter Store as described in the Secret Management section
+   - The values in `.env.example` are placeholders and should be replaced
 
 3. **Install Backend Dependencies:**
+   For local development without Docker:
    ```bash
    cd backend
    pip install -r requirements.txt
    ```
 
 4. **Install Frontend Dependencies:**
+   For local development without Docker:
    ```bash
    cd ../frontend
    npm install
@@ -302,17 +385,40 @@ If you encounter issues with Parameter Store access:
 
 ## Running the Application
 
-### Using Docker (Recommended)
+### Using Docker for Local Development
 
-Docker Compose simplifies running the full stack. Build and start all services with:
+Docker Compose simplifies running the full stack for local development. Build and start all services with:
 ```bash
-docker-compose up --build
+docker-compose -f docker-compose.local.yml up --build
 ```
 After the build completes, access the services at:
 - **Frontend:** [http://localhost:3000](http://localhost:3000)
 - **Backend API:** [http://localhost:8000](http://localhost:8000)
 
-### Manual Setup
+### Using Docker for Production
+
+For production deployment with pre-built ECR images:
+```bash
+# Set required environment variables for pulling ECR images
+export AWS_ACCOUNT_ID=your_account_id
+export AWS_REGION=your_region
+export ECR_BACKEND_REPOSITORY=your_backend_repo
+export ECR_FRONTEND_REPOSITORY=your_frontend_repo
+
+# Run the application - no .env file needed
+docker-compose up
+```
+
+For EC2 deployments:
+1. Ensure your EC2 instance has an IAM role with permissions for:
+   - Parameter Store access (to get secrets)
+   - S3 access (for data storage)
+   - ECR access (to pull images)
+2. Install Docker and Docker Compose on the EC2 instance
+3. Configure the environment variables needed for ECR
+4. Run `docker-compose up`
+
+### Manual Setup (Development Only)
 
 #### Running the Backend (FastAPI)
 Start the backend API using Uvicorn:
@@ -336,11 +442,12 @@ For local development of the frontend, you have two options:
   If you prefer serving static files without the React development setup:
   ```bash
   cd frontend
-  python -m http.server 8000
+  npm run build
+  python -m http.server 8000 --directory dist
   ```
   Then open your browser at [http://localhost:8000](http://localhost:8000).
 
-> **Note:** Ensure the frontend's API calls (e.g., in `main.js`) correctly point to your running backend instance (default is `http://localhost:8000/api`).
+> **Note:** Ensure the frontend's API calls correctly point to your running backend instance (default is `http://localhost:8000/api`).
 
 ## How It Works
 
@@ -464,24 +571,11 @@ The backend provides the following key endpoints:
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for further details.
 
-## CI/CD and Data Handling
-
-### GitHub Actions Workflow
-
-The GitHub Actions workflow:
-- Triggers when code is pushed to the `main` branch (affecting backend, frontend, or Docker configuration)
-- Builds Docker images for both the backend and frontend
-- Tags images with both the commit SHA and `latest`
-- Pushes the images to their respective ECR repositories
-- Can be manually triggered using the GitHub Actions interface
-
-For a detailed explanation of the CI/CD workflow with diagrams, see [CI/CD Workflow Documentation](docs/ci_cd_workflow.md).
-
-### S3 Data Handling
+## S3 Data Handling
 
 The application can store and retrieve ChromaDB vector embeddings from S3, which is particularly useful in production deployments:
 
-#### How It Works
+### How It Works
 1. **Local Development:** 
    - By default, the application uses local storage for ChromaDB data
    - Set `USE_S3_DATA=false` in your `.env` file
@@ -492,7 +586,7 @@ The application can store and retrieve ChromaDB vector embeddings from S3, which
    - If no data is found, it will process raw data from `data/raw` (if available)
    - With `AUTO_UPLOAD_DATA=true`, newly generated ChromaDB data is automatically uploaded to S3
 
-#### Setting Up S3 Data Storage
+### Setting Up S3 Data Storage
 
 1. **Create an S3 Bucket:**
    ```bash
@@ -505,8 +599,8 @@ The application can store and retrieve ChromaDB vector embeddings from S3, which
    ./scripts/upload_chroma_to_s3.sh your-app-data-bucket production
    ```
 
-3. **Configure GitHub Secrets:**
-   - Add `S3_DATA_BUCKET` to your repository secrets
+3. **Configure GitHub Workflow:**
+   - Add `S3_DATA_BUCKET` to your repository variables
    - Ensure your IAM user has S3 permissions
 
 4. **Required IAM Permissions:**

@@ -1,3 +1,9 @@
+# Docker Compose configuration for LOCAL DEVELOPMENT
+# Use this file with: docker-compose -f docker-compose.local.yml up --build
+# This configuration builds containers from source code rather than using pre-built images
+# NOTE: For local development, this uses the .env file for configuration
+# In production (with docker-compose.yml), Parameter Store is used instead
+
 services:
   # Backend FastAPI service
   backend:
@@ -11,10 +17,10 @@ services:
     volumes:
       - ./data:/app/data  # Mount the data directory for persistent storage
     env_file:
-      - .env  # Load environment variables from .env file
+      - .env  # Load environment variables from .env file (LOCAL DEVELOPMENT ONLY)
     environment:
       - CHROMA_DB_PATH=/app/data/chroma  # Set ChromaDB path inside the container
-      - ENV=production  # Set environment to development
+      - ENV=development  # Set environment to development to use .env file
       - S3_DATA_BUCKET=${S3_DATA_BUCKET:-conversational-resume}
       - USE_S3_DATA=${USE_S3_DATA:-true}
       - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}
