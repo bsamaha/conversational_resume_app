@@ -43,37 +43,12 @@ if [ "$USE_S3_DATA" = "true" ] && [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECR
     fi
 fi
 
-# Check if we have raw data but no ChromaDB data, and process if needed
-if [ -d "$RAW_DATA_DIR" ] && [ "$(ls -A $RAW_DATA_DIR)" ] && [ ! "$(ls -A $CHROMA_DIR)" ]; then
-    echo "Raw data found but no ChromaDB data. Running ingestion script..."
-    
-    # Install ingestion requirements if we're in a new environment
-    if [ ! -f "${APP_DIR}/.ingestion_installed" ]; then
-        echo "Installing ingestion dependencies..."
-        pip install -r "${APP_DIR}/data_ingestion/requirements.txt"
-        touch "${APP_DIR}/.ingestion_installed"
-    fi
-    
-    # Run the ingestion script
-    echo "Processing raw data..."
-    cd "${APP_DIR}"
-    python "${APP_DIR}/data_ingestion/ingest.py"
-    
-    # Upload the newly generated ChromaDB data to S3 if configured
-    if [ "$USE_S3_DATA" = "true" ] && [ "$AUTO_UPLOAD_DATA" = "true" ] && [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
-        echo "Uploading newly generated ChromaDB data to S3..."
-        TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        ZIP_FILE="/tmp/chroma_data_${ENVIRONMENT}_${TIMESTAMP}.zip"
-        
-        cd "${APP_DIR}"
-        zip -r "$ZIP_FILE" "data/chroma"
-        
-        aws s3 cp "$ZIP_FILE" "s3://${S3_DATA_BUCKET}/chroma_data/${ENVIRONMENT}/chroma_data_${ENVIRONMENT}_${TIMESTAMP}.zip"
-        aws s3 cp "$ZIP_FILE" "s3://${S3_DATA_BUCKET}/chroma_data/${ENVIRONMENT}/latest.zip"
-        
-        rm "$ZIP_FILE"
-        echo "ChromaDB data uploaded to S3."
-    fi
+# In production environments, we rely on pre-built ChromaDB data
+# We won't try to process raw data as data_ingestion may not be available
+if [ "$ENVIRONMENT" = "development" ] && [ -d "$RAW_DATA_DIR" ] && [ "$(ls -A $RAW_DATA_DIR)" ] && [ ! "$(ls -A $CHROMA_DIR)" ]; then
+    echo "Development environment detected with raw data but no ChromaDB data."
+    echo "Please run the data ingestion process locally before deploying."
+    # We don't run ingest.py in production containers
 fi
 
 # Start the application

@@ -58,9 +58,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY ./app ./app
 
-# Copy data ingestion scripts (needed for processing raw data if no ChromaDB exists)
-COPY ../data_ingestion ./data_ingestion
-
 # Copy startup script
 COPY ./startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh
@@ -73,7 +70,7 @@ ENV USE_S3_DATA=true
 ENV AUTO_UPLOAD_DATA=true
 
 # Create needed directories
-RUN mkdir -p /app/data/raw /app/data/chroma
+RUN mkdir -p /app/data/raw /app/data/chroma /app/data_ingestion
 
 # Healthcheck to verify the API is up
 HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
