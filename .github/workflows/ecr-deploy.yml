@@ -77,12 +77,11 @@ jobs:
         # Verify the frontend directory exists
         ls -la ./frontend
         
-        # Build the frontend Docker image using standard docker build command
-        docker build \
-          -f ./frontend/Dockerfile \
-          -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
-          -t $ECR_REGISTRY/$REPOSITORY:latest \
-          ./frontend
+        # Adding a comment to force GitHub Actions to use the latest workflow version
+        # Using simplified, single-line command to avoid any parsing issues
+        cd ./frontend
+        echo "Building frontend Docker image from $(pwd)"
+        docker build -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$REPOSITORY:latest .
         
         # Push both tags to ECR
         docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
