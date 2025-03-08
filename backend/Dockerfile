@@ -81,7 +81,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ENV=production \
     USE_S3_DATA=true \
     AUTO_UPLOAD_DATA=true \
-    CHROMA_DB_PATH=/app/data/chroma
+    CHROMA_DB_PATH=/app/data/chroma \
+    MODEL_NAME=gpt-4o-mini
 
 # Create needed directories
 RUN mkdir -p /app/data/raw /app/data/chroma /app/data_ingestion

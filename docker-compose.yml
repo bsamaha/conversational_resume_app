@@ -12,6 +12,7 @@ services:
       - S3_DATA_BUCKET=${S3_DATA_BUCKET:-conversational-resume}  # S3 bucket for data storage
       - USE_S3_DATA=${USE_S3_DATA:-true}  # Whether to use S3 for data (default: true for production)
       - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}  # Whether to automatically upload generated data
+      - MODEL_NAME=${MODEL_NAME:-gpt-4o-mini}  # Set the OpenAI model to use
       # AWS credentials - mapped from Parameter Store values
       - AWS_ACCESS_KEY_ID=${CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET}
