@@ -12,6 +12,9 @@ services:
       - S3_DATA_BUCKET=${S3_DATA_BUCKET:-conversational-resume}  # S3 bucket for data storage
       - USE_S3_DATA=${USE_S3_DATA:-true}  # Whether to use S3 for data (default: true for production)
       - AUTO_UPLOAD_DATA=${AUTO_UPLOAD_DATA:-false}  # Whether to automatically upload generated data
+      # AWS credentials - mapped from Parameter Store values
+      - AWS_ACCESS_KEY_ID=${CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${CONVERSATIONAL_RESUME_AWS_ACCESS_KEY_SECRET}
     restart: unless-stopped
     networks:
       - app-network
@@ -30,7 +33,7 @@ services:
     container_name: frontend
     restart: unless-stopped
     ports:
-      - "3000:80"  # Expose the frontend on port 3000, served by Nginx on port 80 inside the container
+      - "80:80"  # Expose the frontend on standard HTTP port 80
     environment:
       - REACT_APP_API_URL=http://backend:8000  # Connect to the backend service
     depends_on:

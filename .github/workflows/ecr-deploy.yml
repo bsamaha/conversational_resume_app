@@ -1,5 +1,17 @@
 name: Build and Push to ECR
 
+# Caching Strategy:
+# This workflow implements a multi-level caching system for faster builds:
+# 1. GitHub Actions Cache: Caches pip downloads and wheel files between runs
+# 2. Docker BuildKit Cache: Caches Docker layers between builds
+# 3. Wheelhouse: Pre-built wheels are saved and reused for heavy dependencies like numpy
+#
+# Maintenance Notes:
+# - All caches are invalidated when backend/requirements.txt changes
+# - To force-invalidate caches, increment the cache key version below
+# - If GitHub's free tier cache limit (10GB) is reached, oldest caches are automatically purged
+# - For debugging cache issues, check the "Cache Python Dependencies" step in workflow runs
+
 on:
   push:
     branches: [ main ]
@@ -51,6 +63,28 @@ jobs:
       
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+    
+    # Cache Python dependencies for faster backend builds
+    - name: Cache Python Dependencies
+      uses: actions/cache@v3
+      id: pip-cache
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-v1-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-v1-
+    
+    # Create a pip wheel cache directory to store pre-built wheels
+    - name: Set up pip wheel cache
+      run: |
+        mkdir -p $HOME/.cache/pip/wheels
+        mkdir -p backend/wheelhouse
+        # Create an empty file to ensure the directory is valid
+        touch backend/wheelhouse/.keep
+        # Copy any previously cached wheels to wheelhouse
+        if [ -d "$HOME/.cache/pip/wheels" ]; then
+          cp -r $HOME/.cache/pip/wheels/* backend/wheelhouse/ 2>/dev/null || true
+        fi
       
     - name: Build, tag, and push backend image to Amazon ECR
       id: build-backend
@@ -61,18 +95,30 @@ jobs:
         AUTO_UPLOAD_DATA: "true"
       run: |
         # Build the backend Docker image with environment variables for S3 data handling
-        docker build \
+        docker buildx build \
+          --cache-from type=gha,scope=backend-build \
+          --cache-to type=gha,scope=backend-build,mode=max \
           --build-arg USE_S3_DATA=$USE_S3_DATA \
           --build-arg AUTO_UPLOAD_DATA=$AUTO_UPLOAD_DATA \
           --build-arg S3_DATA_BUCKET=${{ env.S3_DATA_BUCKET }} \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
           -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
           -t $ECR_REGISTRY/$REPOSITORY:latest \
+          --push \
+          --mount=type=cache,target=/root/.cache/pip \
+          --mount=type=bind,source=backend/wheelhouse,target=/app/wheelhouse \
           ./backend
         
-        # Push both tags to ECR
-        docker push $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG
-        docker push $ECR_REGISTRY/$REPOSITORY:latest
+        # Store built wheels back to the cache
+        mkdir -p $HOME/.cache/pip/wheels
+        if [ -d "backend/wheelhouse" ] && [ -n "$(ls -A backend/wheelhouse)" ]; then
+          echo "Copying wheels back to cache..."
+          cp -r backend/wheelhouse/* $HOME/.cache/pip/wheels/ 2>/dev/null || true
+        else
+          echo "No wheels found to copy back to cache"
+        fi
         
+        # No need to push separately as buildx with --push flag handles it
         echo "backend-image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
     # Use Docker's official build-push-action for the frontend with latest version
@@ -85,8 +131,8 @@ jobs:
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:latest
           ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_FRONTEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
         # Optional: Enable caching for faster builds
-        # cache-from: type=gha
-        # cache-to: type=gha,mode=max
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
         
     - name: Summary
       run: |

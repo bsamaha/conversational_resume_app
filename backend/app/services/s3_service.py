@@ -11,13 +11,17 @@ logger = logging.getLogger(__name__)
 
 class S3Service:
     def __init__(self):
+        # Use default credential chain to support all credential types
+        # This will automatically use credentials from environment variables, EC2 instance profiles,
+        # or AWS credentials file in that order of preference
         self.s3_client = boto3.client(
-            's3', 
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            's3',
             region_name=settings.AWS_REGION
         )
         self.bucket_name = settings.AWS_S3_BUCKET_NAME
+        
+        # Log initialization
+        logger.info(f"Initialized S3Service with region {settings.AWS_REGION} and bucket {self.bucket_name}")
 
     async def save_chat_log(self, session_id: str, user_info: UserInfo, messages: List[Dict[str, Any]]):
         """

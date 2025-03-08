@@ -7,6 +7,7 @@ import openai
 
 from app.api.routes import api_router
 from app.core.config import settings
+from app.core.s3_data_initializer import initialize_chroma_data
 
 # Configure logging
 logging.basicConfig(
@@ -84,6 +85,14 @@ async def startup_event():
     logger.info(f"Using configuration from {config_source}")
     logger.info(f"ChromaDB path: {settings.CHROMA_DB_PATH}")
     logger.info(f"Using embedding model: {settings.EMBEDDING_MODEL}")
+    
+    # Initialize ChromaDB data from S3 if needed
+    if settings.ENV in ("production", "staging"):
+        logger.info("Attempting to download ChromaDB data from S3...")
+        if initialize_chroma_data():
+            logger.info("Successfully initialized ChromaDB data from S3")
+        else:
+            logger.warning("Failed to initialize ChromaDB data from S3. Will use local data if available.")
     
     # Verify OpenAI API key is set
     if not settings.OPENAI_API_KEY:

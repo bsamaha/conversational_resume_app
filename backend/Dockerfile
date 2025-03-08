@@ -21,9 +21,26 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # Install pip and wheel
 RUN pip install --no-cache-dir --upgrade pip wheel setuptools
 
-# Copy and install dependencies
+# Copy requirements and prepare wheelhouse directory
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir -p /app/wheelhouse
+
+# Add an empty file in wheelhouse to ensure directory exists for COPY command
+RUN touch /app/wheelhouse/.keep
+
+# Check for pre-built wheels in wheelhouse (will be mounted by CI)
+COPY ./wheelhouse/ /app/wheelhouse/
+RUN find /app/wheelhouse -type f -name "*.whl" | wc -l | grep -q "0" && echo "No wheels found, will build from scratch" || echo "Found cached wheels"
+
+# Install dependencies - try to use wheels from wheelhouse first
+RUN if [ -n "$(find /app/wheelhouse -name '*.whl' -type f 2>/dev/null)" ]; then \
+      echo "Using cached wheels..." && \
+      pip install --no-cache-dir --find-links=/app/wheelhouse -r requirements.txt; \
+    else \
+      echo "No cached wheels found, building and saving wheels..." && \
+      pip wheel --wheel-dir=/app/wheelhouse -r requirements.txt && \
+      pip install --no-cache-dir --find-links=/app/wheelhouse -r requirements.txt; \
+    fi
 
 # Remove unnecessary cache and files to reduce layer size
 RUN pip cache purge && \
@@ -40,7 +57,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     unzip \
-    zip \
     && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -58,25 +74,25 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY ./app ./app
 
-# Copy startup script
-COPY ./startup.sh /app/startup.sh
-RUN chmod +x /app/startup.sh
-
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV ENV=production
-ENV USE_S3_DATA=true
-ENV AUTO_UPLOAD_DATA=true
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    ENV=production \
+    USE_S3_DATA=true \
+    AUTO_UPLOAD_DATA=true \
+    CHROMA_DB_PATH=/app/data/chroma
 
 # Create needed directories
 RUN mkdir -p /app/data/raw /app/data/chroma /app/data_ingestion
 
 # Healthcheck to verify the API is up
-HEALTHCHECK CMD curl --fail http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl --fail http://localhost:8000/health || exit 1
 
 # Expose the API port
 EXPOSE 8000
 
-# Use our startup script
-CMD ["/app/startup.sh"] 
+# Start the FastAPI application directly with Python
+# Python initialization will handle S3 data downloads through the FastAPI startup handler
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] 
