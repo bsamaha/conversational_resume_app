@@ -86,40 +86,23 @@ jobs:
           cp -r $HOME/.cache/pip/wheels/* backend/wheelhouse/ 2>/dev/null || true
         fi
       
-    - name: Build, tag, and push backend image to Amazon ECR
+    # Build and push the backend image using the official action
+    - name: Build and push backend image
       id: build-backend
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        REPOSITORY: ${{ env.ECR_BACKEND_REPOSITORY }}
-        USE_S3_DATA: "true"
-        AUTO_UPLOAD_DATA: "true"
-      run: |
-        # Build the backend Docker image with environment variables for S3 data handling
-        docker buildx build \
-          --cache-from type=gha,scope=backend-build \
-          --cache-to type=gha,scope=backend-build,mode=max \
-          --build-arg USE_S3_DATA=$USE_S3_DATA \
-          --build-arg AUTO_UPLOAD_DATA=$AUTO_UPLOAD_DATA \
-          --build-arg S3_DATA_BUCKET=${{ env.S3_DATA_BUCKET }} \
-          --build-arg BUILDKIT_INLINE_CACHE=1 \
-          -t $ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG \
-          -t $ECR_REGISTRY/$REPOSITORY:latest \
-          --push \
-          --mount=type=cache,target=/root/.cache/pip \
-          --mount=type=bind,source=backend/wheelhouse,target=/app/wheelhouse \
-          ./backend
-        
-        # Store built wheels back to the cache
-        mkdir -p $HOME/.cache/pip/wheels
-        if [ -d "backend/wheelhouse" ] && [ -n "$(ls -A backend/wheelhouse)" ]; then
-          echo "Copying wheels back to cache..."
-          cp -r backend/wheelhouse/* $HOME/.cache/pip/wheels/ 2>/dev/null || true
-        else
-          echo "No wheels found to copy back to cache"
-        fi
-        
-        # No need to push separately as buildx with --push flag handles it
-        echo "backend-image=$ECR_REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+      uses: docker/build-push-action@v6
+      with:
+        context: ./backend
+        push: true
+        tags: |
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:latest
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_BACKEND_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        build-args: |
+          USE_S3_DATA=true
+          AUTO_UPLOAD_DATA=true
+          S3_DATA_BUCKET=${{ env.S3_DATA_BUCKET }}
+          BUILDKIT_INLINE_CACHE=1
+        cache-from: type=gha,scope=backend-build
+        cache-to: type=gha,scope=backend-build,mode=max
 
     # Use Docker's official build-push-action for the frontend with latest version
     - name: Build and push frontend image
